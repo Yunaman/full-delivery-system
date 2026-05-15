@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+:root {
+  --vh-page: #f6f7fb;
+  --vh-ink: #0f172a;
+  --vh-card: #ffffff;
+  --vh-border: #e2e8f0;
+  --vh-muted: #64748b;
+  --vh-accent: #0f172a;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  color: var(--vh-ink);
+  background: var(--vh-page);
+  transition: background-color 220ms ease, color 220ms ease;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.card {
+  @apply rounded-3xl shadow-sm;
+  border: 1px solid var(--vh-border);
+  background: var(--vh-card);
+  transition: transform 160ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 40px -20px rgba(15, 23, 42, 0.28);
+}
+
+.dark {
+  --vh-page: #070d1a;
+  --vh-ink: #e2e8f0;
+  --vh-card: #0f172a;
+  --vh-border: #1e293b;
+  --vh-muted: #94a3b8;
+  --vh-accent: #e2e8f0;
+}
+
+.dark .bg-white,
+.dark .bg-slate-50 {
+  background-color: #111827 !important;
+}
+
+.dark .text-slate-900 {
+  color: #e2e8f0 !important;
+}
+
+.dark .text-slate-700,
+.dark .text-slate-600,
+.dark .text-slate-500,
+.dark .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+.dark .border-slate-200,
+.dark .border-slate-300 {
+  border-color: #1f2937 !important;
+}
+
+.dark .bg-slate-900 {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+.app-container {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.mobile-safe-bottom {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.75rem);
+}
+
+.ios-pill {
+  border-radius: 999px;
+  border: 1px solid var(--vh-border);
+  background: color-mix(in srgb, var(--vh-card) 84%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}

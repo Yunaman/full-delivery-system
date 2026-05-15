@@ -1,0 +1,10 @@
+node_modules
+.next
+out
+android
+npm-debug.log
+Dockerfile
+.env*
+.git
+.gitignore
+.DS_Store
