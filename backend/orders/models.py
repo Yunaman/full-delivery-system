@@ -193,6 +193,8 @@ class Order(models.Model):
             models.Index(fields=['driver', 'status']),
             models.Index(fields=['status', 'created_at']),
             models.Index(fields=['order_number']),
+            models.Index(fields=['vendor', 'created_at']),
+            models.Index(fields=['customer', 'created_at']),
         ]
     
     def __str__(self):

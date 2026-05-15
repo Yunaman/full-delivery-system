@@ -1,42 +1,60 @@
-FROM python:3.13-slim AS builder
+# Stage 1: Build stage
+FROM python:3.12-slim-bookworm AS builder
 
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update && apt-get install -y \
-    gcc \
-    libpq-dev \
-    build-essential \
-    libffi-dev \
-    && rm -rf /var/lib/apt/lists/*
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=off \
+    PIP_DISABLE_PIP_VERSION_CHECK=on
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
-
-FROM python:3.13-slim AS runtime
-
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV DEBIAN_FRONTEND=noninteractive
-
+# Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    postgresql-client \
-    libpq5 \
+    build-essential \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Install python dependencies
+COPY requirements.txt .
+RUN pip install --upgrade pip && \
+    pip install --prefix=/install -r requirements.txt
+
+
+# Stage 2: Production stage
+FROM python:3.12-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-COPY --from=builder /wheels /wheels
-COPY requirements.txt .
-RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt \
-    && rm -rf /wheels
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    curl \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
 
+# Copy installed python packages from builder
+COPY --from=builder /install /usr/local
+
+# Copy project files
 COPY . .
 
-RUN mkdir -p /app/staticfiles /app/media /app/logs
+# Create logs directory and non-privileged user
+RUN mkdir -p /app/logs /app/staticfiles /app/media && \
+    useradd -m django && \
+    chown -R django:django /app && \
+    chmod +x /app/docker-entrypoint.sh
+
+USER django
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+
+# Healthcheck - using a versioned endpoint that exists
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/api/auth/login/ || exit 1
 
 EXPOSE 8000
 

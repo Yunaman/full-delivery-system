@@ -1,28 +1,39 @@
 import json
+import logging
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.layers import get_channel_layer
 
+logger = logging.getLogger(__name__)
 
 class OrderConsumer(AsyncWebsocketConsumer):
     """
-    WebSocket consumer for real-time order updates.
+    Production-grade WebSocket consumer for real-time order updates.
+    Includes robust error handling and authentication checks.
     """
     
     async def connect(self):
+        self.user = self.scope.get('user')
+
+        # 1. Authentication Check
+        if not self.user or not self.user.is_authenticated:
+            logger.warning("Unauthenticated WebSocket connection attempt.")
+            await self.close(code=4003) # Forbidden
+            return
+
         self.order_id = self.scope['url_route']['kwargs'].get('order_id')
-        self.user = self.scope['user']
         
-        # Verify user has access to this order
         if self.order_id:
+            # 2. Specific Order Access Check
             has_access = await self.check_order_access(self.order_id)
             if not has_access:
-                await self.close()
+                logger.warning(f"User {self.user.id} denied access to order {self.order_id}")
+                await self.close(code=4003)
                 return
             
             self.room_group_name = f"order_{self.order_id}"
         else:
-            # General order updates for the user
+            # 3. General User Group for all their order updates
             self.room_group_name = f"user_{self.user.id}_orders"
         
         # Join room group
@@ -32,59 +43,59 @@ class OrderConsumer(AsyncWebsocketConsumer):
         )
         
         await self.accept()
+        logger.info(f"User {self.user.id} connected to {self.room_group_name}")
         
-        # Send confirmation
         await self.send(text_data=json.dumps({
             'type': 'connection_established',
-            'message': 'Connected to order updates'
+            'status': 'connected',
+            'room': self.room_group_name
         }))
     
     async def disconnect(self, close_code):
-        # Leave room group
         if hasattr(self, 'room_group_name'):
             await self.channel_layer.group_discard(
                 self.room_group_name,
                 self.channel_name
             )
+            logger.info(f"User {self.user.id} disconnected from {self.room_group_name} (Code: {close_code})")
     
     async def receive(self, text_data):
         """
-        Receive message from WebSocket.
+        Handle incoming messages with heartbeat (ping/pong) and subscription logic.
         """
         try:
             data = json.loads(text_data)
-            message_type = data.get('type')
+            msg_type = data.get('type')
             
-            if message_type == 'ping':
-                await self.send(text_data=json.dumps({
-                    'type': 'pong'
-                }))
-            
-            elif message_type == 'subscribe_order':
+            # Heartbeat mechanism
+            if msg_type == 'ping':
+                await self.send(text_data=json.dumps({'type': 'pong'}))
+                return
+
+            if msg_type == 'subscribe_order':
                 order_id = data.get('order_id')
-                if order_id:
-                    has_access = await self.check_order_access(order_id)
-                    if has_access:
-                        new_group = f"order_{order_id}"
-                        await self.channel_layer.group_add(
-                            new_group,
-                            self.channel_name
-                        )
-                        await self.send(text_data=json.dumps({
-                            'type': 'subscribed',
-                            'order_id': order_id
-                        }))
+                if order_id and await self.check_order_access(order_id):
+                    new_group = f"order_{order_id}"
+                    await self.channel_layer.group_add(new_group, self.channel_name)
+                    await self.send(text_data=json.dumps({
+                        'type': 'subscribed',
+                        'order_id': order_id
+                    }))
             
         except json.JSONDecodeError:
             await self.send(text_data=json.dumps({
                 'type': 'error',
-                'message': 'Invalid JSON'
+                'message': 'Malformed JSON'
+            }))
+        except Exception as e:
+            logger.error(f"WebSocket error: {str(e)}")
+            await self.send(text_data=json.dumps({
+                'type': 'error',
+                'message': 'Internal server error'
             }))
     
     async def order_update(self, event):
-        """
-        Receive order update from room group.
-        """
+        """Broadcast order updates to the client."""
         await self.send(text_data=json.dumps({
             'type': 'order_update',
             'order_id': event.get('order_id'),
@@ -92,9 +103,7 @@ class OrderConsumer(AsyncWebsocketConsumer):
         }))
     
     async def driver_location_update(self, event):
-        """
-        Receive driver location update from room group.
-        """
+        """Broadcast driver location updates to the client."""
         await self.send(text_data=json.dumps({
             'type': 'driver_location',
             'order_id': event.get('order_id'),
@@ -103,43 +112,18 @@ class OrderConsumer(AsyncWebsocketConsumer):
     
     @database_sync_to_async
     def check_order_access(self, order_id):
-        """
-        Check if user has access to the order.
-        """
-        from .models import Order
+        from orders.models import Order
         try:
             order = Order.objects.get(id=order_id)
-            
-            # User is the customer
-            if order.customer == self.user:
-                return True
-            
-            # User is the vendor owner
-            if order.vendor.owner == self.user:
-                return True
-            
-            # User is the assigned driver
-            from drivers.models import Driver
-            try:
-                driver = Driver.objects.get(user=self.user)
-                if order.driver == driver:
-                    return True
-            except Driver.DoesNotExist:
-                pass
-            
-            # User is admin
-            if self.user.is_admin_user:
-                return True
-            
+            if order.customer == self.user: return True
+            if order.vendor.owner == self.user: return True
+            if order.driver and order.driver.user == self.user: return True
+            if self.user.is_staff: return True
             return False
         except Order.DoesNotExist:
             return False
 
-
 async def broadcast_order_update(order_id, data):
-    """
-    Broadcast order update to all connected clients.
-    """
     channel_layer = get_channel_layer()
     await channel_layer.group_send(
         f"order_{order_id}",
@@ -147,20 +131,5 @@ async def broadcast_order_update(order_id, data):
             'type': 'order_update',
             'order_id': str(order_id),
             'data': data
-        }
-    )
-
-
-async def broadcast_driver_location(order_id, location):
-    """
-    Broadcast driver location update.
-    """
-    channel_layer = get_channel_layer()
-    await channel_layer.group_send(
-        f"order_{order_id}",
-        {
-            'type': 'driver_location_update',
-            'order_id': str(order_id),
-            'location': location
         }
     )
