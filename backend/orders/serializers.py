@@ -22,6 +22,16 @@ class OrderItemSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'total_price']
 
+class OrderSerializer(serializers.ModelSerializer):
+    """
+    Base serializer for Order model.
+    """
+    items = OrderItemSerializer(many=True, read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = Order
+        fields = '__all__'
 
 class OrderItemCreateSerializer(serializers.ModelSerializer):
     """

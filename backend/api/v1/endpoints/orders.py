@@ -1,18 +1,76 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from django.core.exceptions import PermissionDenied
 
 from domains.orders.services import OrderService
-from domains.orders.serializers import OrderSerializer
+from domains.orders.repositories import OrderRepository
+from orders.serializers import OrderDetailSerializer, OrderListSerializer
+from api.v1.permissions import IsOrderParticipant, IsCustomer
 
 
 class OrderViewSet(viewsets.ViewSet):
+    """
+    Enterprise-grade API endpoint for Order management.
+    Implements strict role-based access control (RBAC).
+    """
     permission_classes = [IsAuthenticated]
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.repo = OrderRepository()
+        self.service = OrderService(repo=self.repo)
+
+    def get_permissions(self):
+        if self.action == 'create':
+            return [IsAuthenticated(), IsCustomer()]
+        if self.action in ['retrieve', 'update', 'partial_update']:
+            return [IsAuthenticated(), IsOrderParticipant()]
+        return super().get_permissions()
+
     def create(self, request):
+        """Place a new order."""
         data = request.data
-        items = data.get("items", [])
-        total_amount = data.get("total_amount", 0)
-        service = OrderService()
-        order = service.create_order(request.user, items, total_amount)
-        return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
+        try:
+            order = self.service.create_order(
+                customer=request.user,
+                vendor_id=data.get("vendor_id"),
+                items=data.get("items", []),
+                delivery_address=data.get("delivery_address"),
+                payment_method=data.get("payment_method", "cash"),
+                contact_name=data.get("contact_name"),
+                contact_phone=data.get("contact_phone"),
+                delivery_latitude=data.get("delivery_latitude"),
+                delivery_longitude=data.get("delivery_longitude"),
+                notes=data.get("notes")
+            )
+            return Response(OrderDetailSerializer(order).data, status=status.HTTP_201_CREATED)
+        except ValueError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    def retrieve(self, request, pk=None):
+        """Get detailed order information with RBAC."""
+        order = self.repo.get_with_details(pk)
+        self.check_object_permissions(request, order)
+        return Response(OrderDetailSerializer(order).data)
+
+    def list(self, request):
+        """List orders filtered by user role and status."""
+        user = request.user
+        orders = self.repo.list_active_orders()
+
+        if user.role == 'customer':
+            orders = orders.filter(customer=user)
+        elif user.role == 'vendor':
+            orders = orders.filter(vendor__owner=user)
+        elif user.role == 'driver':
+            from drivers.models import Driver
+            try:
+                driver = Driver.objects.get(user=user)
+                orders = orders.filter(driver=driver)
+            except Driver.DoesNotExist:
+                orders = orders.none()
+        elif not user.is_staff:
+            orders = orders.none()
+
+        return Response(OrderListSerializer(orders, many=True).data)
