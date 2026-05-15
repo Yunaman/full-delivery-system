@@ -39,7 +39,7 @@ class Order(models.Model):
     
     customer = models.ForeignKey(
         'accounts.User',
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name='orders',
         limit_choices_to={'role': 'customer'},
         verbose_name=_('customer')
@@ -47,7 +47,7 @@ class Order(models.Model):
     
     vendor = models.ForeignKey(
         'vendors.Vendor',
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name='orders',
         verbose_name=_('vendor')
     )

@@ -23,6 +23,11 @@ export function setAuthTokens(tokens: AuthTokens) {
   if (!storage) return;
   storage.setItem(ACCESS_TOKEN_KEY, tokens.access);
   if (tokens.refresh) storage.setItem(REFRESH_TOKEN_KEY, tokens.refresh);
+
+  // Sync with cookie for server-side middleware access
+  if (typeof document !== "undefined") {
+    document.cookie = `${ACCESS_TOKEN_KEY}=${tokens.access}; path=/; max-age=3600; SameSite=Lax`;
+  }
 }
 
 export function clearAuthTokens() {
@@ -30,4 +35,9 @@ export function clearAuthTokens() {
   if (!storage) return;
   storage.removeItem(ACCESS_TOKEN_KEY);
   storage.removeItem(REFRESH_TOKEN_KEY);
+
+  // Clear cookie
+  if (typeof document !== "undefined") {
+    document.cookie = `${ACCESS_TOKEN_KEY}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+  }
 }

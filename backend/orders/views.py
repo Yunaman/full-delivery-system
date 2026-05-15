@@ -182,7 +182,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             OrderDetailSerializer(order, context={'request': request}).data
         )
     
-    @action(detail=True, methods=['post'], permission_classes=[IsVendorOwner | IsAdminUser])
+    @action(detail=True, methods=['post'], permission_classes=[IsVendorOwner | IsAdminUser | IsDriverUser])
     def assign_driver(self, request, pk=None):
         """
         Assign a driver to an order.
@@ -195,11 +195,18 @@ class OrderViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        serializer = AssignDriverSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
+        driver_id = request.data.get('driver_id')
         from drivers.models import Driver
-        driver = Driver.objects.get(id=serializer.validated_data['driver_id'])
+
+        if driver_id == 'me' and request.user.is_driver_user:
+            try:
+                driver = Driver.objects.get(user=request.user)
+            except Driver.DoesNotExist:
+                return Response({"detail": "Driver profile not found."}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            serializer = AssignDriverSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            driver = Driver.objects.get(id=serializer.validated_data['driver_id'])
         
         order.driver = driver
         order.status = Order.Status.PICKED_UP
