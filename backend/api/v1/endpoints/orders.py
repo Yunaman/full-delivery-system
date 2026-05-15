@@ -1,11 +1,12 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied
 
 from domains.orders.services import OrderService
 from domains.orders.repositories import OrderRepository
-from orders.serializers import OrderSerializer, OrderDetailSerializer, OrderListSerializer
+from orders.serializers import OrderDetailSerializer, OrderListSerializer
+from api.v1.permissions import IsOrderParticipant, IsCustomer
 
 
 class OrderViewSet(viewsets.ViewSet):
@@ -19,6 +20,13 @@ class OrderViewSet(viewsets.ViewSet):
         super().__init__(**kwargs)
         self.repo = OrderRepository()
         self.service = OrderService(repo=self.repo)
+
+    def get_permissions(self):
+        if self.action == 'create':
+            return [IsAuthenticated(), IsCustomer()]
+        if self.action in ['retrieve', 'update', 'partial_update']:
+            return [IsAuthenticated(), IsOrderParticipant()]
+        return super().get_permissions()
 
     def create(self, request):
         """Place a new order."""
@@ -43,19 +51,7 @@ class OrderViewSet(viewsets.ViewSet):
     def retrieve(self, request, pk=None):
         """Get detailed order information with RBAC."""
         order = self.repo.get_with_details(pk)
-
-        # Check if user has permission to view this order
-        user = request.user
-        if user.role == 'customer' and order.customer_id != user.id:
-            raise PermissionDenied("You do not have permission to view this order.")
-        elif user.role == 'vendor' and order.vendor.owner_id != user.id:
-            raise PermissionDenied("You do not have permission to view this order.")
-        elif user.role == 'driver':
-            if order.driver and order.driver.user_id != user.id:
-                raise PermissionDenied("You do not have permission to view this order.")
-            elif not order.driver:
-                raise PermissionDenied("Order not assigned to you.")
-
+        self.check_object_permissions(request, order)
         return Response(OrderDetailSerializer(order).data)
 
     def list(self, request):
@@ -68,16 +64,13 @@ class OrderViewSet(viewsets.ViewSet):
         elif user.role == 'vendor':
             orders = orders.filter(vendor__owner=user)
         elif user.role == 'driver':
-            # Drivers see orders assigned to them
             from drivers.models import Driver
             try:
                 driver = Driver.objects.get(user=user)
                 orders = orders.filter(driver=driver)
             except Driver.DoesNotExist:
-                # If the user is a driver but has no profile, they see nothing
                 orders = orders.none()
         elif not user.is_staff:
-            # Any other role that isn't staff sees nothing
             orders = orders.none()
 
         return Response(OrderListSerializer(orders, many=True).data)
