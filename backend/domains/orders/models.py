@@ -27,7 +27,8 @@ class Order(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = "orders_order"
+        app_label = 'orders_domain'
+        db_table = "orders_order_domain"
         indexes = [
             models.Index(fields=["customer", "status", "created_at"]),
         ]
@@ -40,4 +41,5 @@ class OrderLine(models.Model):
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
 
     class Meta:
-        db_table = "orders_orderline"
+        app_label = 'orders_domain'
+        db_table = "orders_orderline_domain"

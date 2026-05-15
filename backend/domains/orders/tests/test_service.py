@@ -8,7 +8,7 @@ def test_create_order_creates_lines(db):
     from domains.orders.services import OrderService
 
     User = get_user_model()
-    user = User.objects.create_user(username="u1", email="u1@example.com", password="pass")
+    user = User.objects.create_user(name="u1", email="u1@example.com", password="pass")
     svc = OrderService()
     items = [{"name": "Pizza", "quantity": 1, "unit_price": "9.99"}]
     order = svc.create_order(user, items, total_amount="9.99")
