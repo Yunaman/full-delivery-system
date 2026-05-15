@@ -10,9 +10,14 @@ class OrderConsumer(AsyncWebsocketConsumer):
     """
     
     async def connect(self):
-        self.order_id = self.scope['url_route']['kwargs'].get('order_id')
         self.user = self.scope['user']
         
+        if not self.user.is_authenticated:
+            await self.close()
+            return
+
+        self.order_id = self.scope['url_route']['kwargs'].get('order_id')
+
         # Verify user has access to this order
         if self.order_id:
             has_access = await self.check_order_access(self.order_id)

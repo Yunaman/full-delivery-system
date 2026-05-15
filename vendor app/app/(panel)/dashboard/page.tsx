@@ -1,107 +1,79 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Activity, Plus, Truck, Zap } from "lucide-react";
+import { Plus, Truck } from "lucide-react";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
 import { usePreferences } from "@/components/preferences-provider";
-import { RevenueChart } from "@/components/revenue-chart";
-import { activityFeed, orderFeed, revenueSeries, topProducts } from "@/lib/mock-data";
-
-function Counter({ value, prefix = "" }: { value: number; prefix?: string }) {
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    let i = 0;
-    const id = setInterval(() => {
-      i += Math.ceil(value / 24);
-      setCount(Math.min(value, i));
-      if (i >= value) clearInterval(id);
-    }, 35);
-    return () => clearInterval(id);
-  }, [value]);
-  return <span>{prefix}{count.toLocaleString()}</span>;
-}
+import api from "@/lib/django-api";
 
 export default function DashboardPage() {
   const { formatMoney, t } = usePreferences();
+  const [stats, setStats] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    const id = setInterval(() => {
-      toast(t("New order incoming", "አዲስ ትዕዛዝ ገብቷል"), {
-        description: t("Order ", "ትዕዛዝ ") + "VH-92" + Math.floor(Math.random() * 100),
-      });
-    }, 14000);
-    return () => clearInterval(id);
-  }, [t]);
+    async function loadStats() {
+      try {
+        const data = await api.getVendorStats();
+        setStats(data);
+      } catch (error) {
+        console.error("Failed to load vendor stats", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadStats();
+  }, []);
+
+  if (loading) return <div className="p-12 text-center text-slate-500">Loading metrics...</div>;
+
+  const summary = [
+    { title: t("Revenue", "ገቢ"), value: stats?.summary?.total_revenue || 0, isMoney: true },
+    { title: "Orders Today", value: stats?.summary?.today_orders || 0 },
+    { title: "Total Orders", value: stats?.summary?.total_orders || 0 },
+    { title: "Rating", value: stats?.summary?.rating || 0, suffix: " ★" },
+  ];
 
   return (
     <div className="space-y-6 p-4 md:p-8">
       <header className="card p-6">
-        <p className="text-sm text-slate-500">{t("Good afternoon, Pablo", "እንደምን አመሻችሁ ፓብሎ")}</p>
-        <h1 className="mt-1 text-3xl font-bold tracking-tight">{t("Vendor Dashboard", "የሻጭ ዳሽቦርድ")}</h1>
+        <h1 className="text-3xl font-bold tracking-tight">{t("Vendor Dashboard", "የሻጭ ዳሽቦርድ")}</h1>
       </header>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {[
-          { title: t("Revenue", "ገቢ"), value: 32840, prefix: "" },
-          { title: "Pending Orders", value: 43 },
-          { title: "Deliveries Live", value: 12 },
-          { title: "Conversion", value: 93, suffix: "%" },
-        ].map((card) => (
-          <motion.article key={card.title} whileHover={{ y: -3 }} className="card p-5">
-            <p className="text-sm text-slate-500">{card.title}</p>
+        {summary.map((card) => (
+          <motion.article key={card.title} whileHover={{ y: -2 }} className="card p-5">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{card.title}</p>
             <p className="mt-2 text-3xl font-bold">
-              {card.title === t("Revenue", "ገቢ") ? formatMoney(card.value) : <Counter value={card.value} prefix={card.prefix} />}
-              {"suffix" in card ? card.suffix : ""}
+              {card.isMoney ? formatMoney(card.value) : card.value}
+              {card.suffix || ""}
             </p>
           </motion.article>
         ))}
       </section>
 
       <section className="grid gap-4 xl:grid-cols-3">
-        <div className="card p-5 xl:col-span-2">
-          <h2 className="text-lg font-semibold">Sales Graph</h2>
-          <p className="text-sm text-slate-500">Revenue trend this week</p>
-          <RevenueChart data={revenueSeries} />
-        </div>
-        <div className="card p-5">
-          <h2 className="text-lg font-semibold">Live Pending Orders</h2>
-          <div className="mt-4 space-y-3">
-            {orderFeed.map((order) => (
-              <div key={order.id} className="rounded-2xl bg-slate-50 p-3">
-                <div className="flex items-center justify-between text-sm">
-                  <p className="font-semibold">{order.id}</p>
-                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">{order.status}</span>
-                </div>
-                <p className="mt-1 text-sm text-slate-600">{order.customer} · {formatMoney(order.amount)}</p>
+        <div className="card p-6 xl:col-span-2">
+          <h2 className="text-lg font-bold mb-4 text-slate-900">Top Selling Products</h2>
+          <div className="space-y-3">
+            {stats?.popular_products?.map((p: any) => (
+              <div key={p.product__name} className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 text-sm">
+                <p className="font-semibold text-slate-700">{p.product__name}</p>
+                <p className="font-bold text-slate-900">{p.total_sold} units sold</p>
               </div>
             ))}
+            {(!stats?.popular_products || stats.popular_products.length === 0) && (
+                <p className="text-slate-400 italic">No sales data recorded yet.</p>
+            )}
           </div>
         </div>
-      </section>
-
-      <section className="grid gap-4 xl:grid-cols-2">
-        <div className="card p-5">
-          <h2 className="text-lg font-semibold">Top Products</h2>
-          <div className="mt-4 space-y-3">
-            {topProducts.map((p) => (
-              <div key={p.id} className="flex items-center justify-between rounded-2xl bg-slate-50 p-3 text-sm">
-                <div>
-                  <p className="font-semibold">{p.name}</p>
-                  <p className="text-slate-500">{p.category}</p>
-                </div>
-                <p className="font-semibold">{p.sold} sold</p>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="card p-5">
-          <h2 className="text-lg font-semibold">Recent Activity</h2>
-          <div className="mt-4 space-y-4">
-            {activityFeed.map((a) => (
-              <div key={a.id} className="relative pl-6">
-                <span className="absolute left-0 top-1.5 h-2.5 w-2.5 rounded-full bg-slate-900" />
-                <p className="text-xs text-slate-400">{a.time}</p>
-                <p className="text-sm text-slate-700">{a.text}</p>
+        <div className="card p-6">
+          <h2 className="text-lg font-bold mb-4 text-slate-900">Order Status</h2>
+          <div className="space-y-3">
+            {Object.entries(stats?.order_status_breakdown || {}).map(([status, count]) => (
+              <div key={status} className="flex items-center justify-between text-sm">
+                <span className="capitalize font-medium text-slate-600">{status.replace('_', ' ')}</span>
+                <span className="font-bold text-slate-900">{count as number}</span>
               </div>
             ))}
           </div>
@@ -109,17 +81,9 @@ export default function DashboardPage() {
       </section>
 
       <div className="mobile-safe-bottom fixed bottom-20 right-4 z-20 flex flex-col gap-2 lg:bottom-8 lg:right-6">
-        {[
-          { icon: Plus, label: "New Product" },
-          { icon: Activity, label: "New Campaign" },
-          { icon: Truck, label: "Dispatch" },
-          { icon: Zap, label: "Quick Boost" },
-        ].map((action) => (
-          <button key={action.label} className="ios-pill flex items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-900 transition active:scale-95 dark:text-slate-100">
-            <action.icon className="h-4 w-4" />
-            {action.label}
-          </button>
-        ))}
+        <button className="ios-pill flex items-center gap-2 px-5 py-3 text-sm font-bold text-white bg-slate-900 shadow-xl transition active:scale-95">
+          <Plus className="h-4 w-4" /> New Product
+        </button>
       </div>
     </div>
   );
