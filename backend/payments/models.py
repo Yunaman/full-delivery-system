@@ -29,7 +29,7 @@ class Payment(models.Model):
     
     order = models.ForeignKey(
         'orders.Order',
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name='payments',
         verbose_name=_('order')
     )

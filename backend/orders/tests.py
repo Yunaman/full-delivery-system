@@ -209,3 +209,78 @@ class OrderAPITests(APITestCase):
         
         order.refresh_from_db()
         self.assertEqual(order.status, 'cancelled')
+
+
+class DataProtectionTests(TestCase):
+    """Test data protection against accidental deletion of financial and historical records."""
+
+    def setUp(self):
+        """Set up test data."""
+        self.customer = User.objects.create_user(
+            email='customer_prot@example.com',
+            name='Protected Customer',
+            password='pass123',
+            role='customer'
+        )
+
+        self.vendor_user = User.objects.create_user(
+            email='vendor_prot@example.com',
+            name='Protected Vendor Owner',
+            password='pass123',
+            role='vendor'
+        )
+
+        self.vendor = Vendor.objects.create(
+            owner=self.vendor_user,
+            shop_name='Protected Shop',
+            address='123 Protected Street',
+            city='Protected City',
+            is_open=True
+        )
+
+        self.order = Order.objects.create(
+            customer=self.customer,
+            vendor=self.vendor,
+            delivery_address='456 Protected Street',
+            subtotal=Decimal('100.00'),
+            total_price=Decimal('100.00'),
+            status='completed'
+        )
+
+    def test_cannot_delete_order_with_payment(self):
+        """Verify an order with an associated payment record cannot be deleted."""
+        from django.db.models import ProtectedError
+        from payments.models import Payment
+
+        Payment.objects.create(
+            order=self.order,
+            amount=Decimal('100.00'),
+            method='card',
+            status='completed'
+        )
+
+        with self.assertRaises(ProtectedError):
+            self.order.delete()
+
+    def test_cannot_delete_customer_or_vendor_with_orders(self):
+        """Verify deleting a customer or vendor with order history raises ProtectedError."""
+        from django.db.models import ProtectedError
+
+        with self.assertRaises(ProtectedError):
+            self.customer.delete()
+
+        with self.assertRaises(ProtectedError):
+            self.vendor.delete()
+
+    def test_deactivating_customer_or_vendor_preserves_orders(self):
+        """Verify soft deactivation of customer or vendor retains historical order data."""
+        self.customer.is_active = False
+        self.customer.save()
+
+        self.vendor.is_active = False
+        self.vendor.save()
+
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.customer, self.customer)
+        self.assertEqual(self.order.vendor, self.vendor)
+        self.assertEqual(Order.objects.filter(pk=self.order.pk).count(), 1)
