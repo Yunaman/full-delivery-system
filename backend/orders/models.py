@@ -87,7 +87,7 @@ class Order(models.Model):
         _('subtotal'),
         max_digits=10,
         decimal_places=2,
-        default=0.00,
+        default=0,
         validators=[MinValueValidator(0)]
     )
     
@@ -95,7 +95,7 @@ class Order(models.Model):
         _('delivery fee'),
         max_digits=10,
         decimal_places=2,
-        default=0.00,
+        default=0,
         validators=[MinValueValidator(0)]
     )
     
@@ -103,7 +103,7 @@ class Order(models.Model):
         _('tax amount'),
         max_digits=10,
         decimal_places=2,
-        default=0.00,
+        default=0,
         validators=[MinValueValidator(0)]
     )
     
@@ -111,7 +111,7 @@ class Order(models.Model):
         _('discount amount'),
         max_digits=10,
         decimal_places=2,
-        default=0.00,
+        default=0,
         validators=[MinValueValidator(0)]
     )
     
@@ -119,7 +119,7 @@ class Order(models.Model):
         _('total price'),
         max_digits=10,
         decimal_places=2,
-        default=0.00,
+        default=0,
         validators=[MinValueValidator(0)]
     )
     
