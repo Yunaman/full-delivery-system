@@ -284,3 +284,111 @@ class DataProtectionTests(TestCase):
         self.assertEqual(self.order.customer, self.customer)
         self.assertEqual(self.order.vendor, self.vendor)
         self.assertEqual(Order.objects.filter(pk=self.order.pk).count(), 1)
+
+
+class OrderDeletionPolicyAPITests(APITestCase):
+    """Test API policy preventing hard deletion of completed or paid orders."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email='admin_del@example.com',
+            name='Admin User',
+            password='pass123',
+            role='admin',
+            is_staff=True,
+            is_superuser=True
+        )
+
+        self.customer = User.objects.create_user(
+            email='cust_del@example.com',
+            name='Customer User',
+            password='pass123',
+            role='customer'
+        )
+
+        self.vendor_user = User.objects.create_user(
+            email='vendor_del@example.com',
+            name='Vendor Owner',
+            password='pass123',
+            role='vendor'
+        )
+
+        self.vendor = Vendor.objects.create(
+            owner=self.vendor_user,
+            shop_name='Deletion Test Shop',
+            address='123 Street',
+            city='City'
+        )
+
+        # Token for Admin
+        resp = self.client.post(reverse('token_obtain_pair'), {
+            'email': 'admin_del@example.com',
+            'password': 'pass123'
+        })
+        self.admin_token = resp.data['access']
+
+        # Token for Customer
+        resp = self.client.post(reverse('token_obtain_pair'), {
+            'email': 'cust_del@example.com',
+            'password': 'pass123'
+        })
+        self.customer_token = resp.data['access']
+
+    def test_admin_cannot_delete_completed_order_via_api(self):
+        order = Order.objects.create(
+            customer=self.customer,
+            vendor=self.vendor,
+            delivery_address='Address',
+            status='completed',
+            total_price=Decimal('50.00')
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.admin_token}')
+        response = self.client.delete(reverse('order-detail', kwargs={'pk': order.id}))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(Order.objects.filter(id=order.id).exists())
+
+    def test_admin_cannot_delete_paid_order_via_api(self):
+        order = Order.objects.create(
+            customer=self.customer,
+            vendor=self.vendor,
+            delivery_address='Address',
+            status='pending',
+            payment_status='paid',
+            total_price=Decimal('50.00')
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.admin_token}')
+        response = self.client.delete(reverse('order-detail', kwargs={'pk': order.id}))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(Order.objects.filter(id=order.id).exists())
+
+    def test_customer_forbidden_from_deleting_order(self):
+        order = Order.objects.create(
+            customer=self.customer,
+            vendor=self.vendor,
+            delivery_address='Address',
+            status='pending'
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.customer_token}')
+        response = self.client.delete(reverse('order-detail', kwargs={'pk': order.id}))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_delete_unpaid_pending_order_with_audit_logging(self):
+        order = Order.objects.create(
+            customer=self.customer,
+            vendor=self.vendor,
+            delivery_address='Address',
+            status='pending',
+            payment_status='pending'
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.admin_token}')
+        response = self.client.delete(
+            reverse('order-detail', kwargs={'pk': order.id}),
+            {'reason': 'Test admin cleanup'},
+            format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Order.objects.filter(id=order.id).exists())
