@@ -59,8 +59,8 @@ class Vendor(models.Model):
     
     address = models.TextField(_('address'))
     city = models.CharField(_('city'), max_length=100)
-    state = models.CharField(_('state/province'), max_length=100)
-    postal_code = models.CharField(_('postal code'), max_length=20)
+    state = models.CharField(_('state/province'), max_length=100, blank=True)
+    postal_code = models.CharField(_('postal code'), max_length=20, blank=True)
     country = models.CharField(_('country'), max_length=100, default='US')
     
     latitude = models.DecimalField(

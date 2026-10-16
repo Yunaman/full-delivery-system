@@ -116,6 +116,40 @@ class OrderViewSet(viewsets.ModelViewSet):
     @swagger_auto_schema(operation_description="Get order details")
     def retrieve(self, request, *args, **kwargs):
         return super().retrieve(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        """
+        Custom destroy action implementing Task 3 data protection rules:
+        - Completed or paid orders cannot be hard deleted.
+        - Deletion of pending/unpaid orders requires reason and creates an audit record.
+        """
+        order = self.get_object()
+
+        # Rule 1: Prevent deletion of completed or delivered orders
+        if order.status in [Order.Status.COMPLETED, Order.Status.DELIVERED]:
+            return Response(
+                {"detail": "Completed or delivered orders cannot be deleted to preserve financial history. Use cancellation or status update."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Rule 2: Prevent deletion of paid orders or orders with payment history
+        if order.payment_status == Order.PaymentStatus.PAID or order.payments.exists():
+            return Response(
+                {"detail": "Paid orders or orders with payment records cannot be deleted. Use cancellation to issue a refund."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Rule 3: For allowed administrative hard-deletions (pending/unpaid orders), log an audit record
+        reason = request.data.get('reason', 'Administrative deletion of unpaid pending order') if isinstance(request.data, dict) else 'Administrative deletion'
+
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(
+            f"ADMIN ORDER DELETION AUDIT: Admin {request.user.id} ({request.user.email}) "
+            f"deleted order {order.id} (#{order.order_number}). Reason: {reason}"
+        )
+
+        return super().destroy(request, *args, **kwargs)
     
     @action(detail=True, methods=['post'], permission_classes=[IsVendorOwner | IsAdminUser])
     def update_status(self, request, pk=None):

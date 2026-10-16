@@ -209,3 +209,186 @@ class OrderAPITests(APITestCase):
         
         order.refresh_from_db()
         self.assertEqual(order.status, 'cancelled')
+
+
+class DataProtectionTests(TestCase):
+    """Test data protection against accidental deletion of financial and historical records."""
+
+    def setUp(self):
+        """Set up test data."""
+        self.customer = User.objects.create_user(
+            email='customer_prot@example.com',
+            name='Protected Customer',
+            password='pass123',
+            role='customer'
+        )
+
+        self.vendor_user = User.objects.create_user(
+            email='vendor_prot@example.com',
+            name='Protected Vendor Owner',
+            password='pass123',
+            role='vendor'
+        )
+
+        self.vendor = Vendor.objects.create(
+            owner=self.vendor_user,
+            shop_name='Protected Shop',
+            address='123 Protected Street',
+            city='Protected City',
+            is_open=True
+        )
+
+        self.order = Order.objects.create(
+            customer=self.customer,
+            vendor=self.vendor,
+            delivery_address='456 Protected Street',
+            subtotal=Decimal('100.00'),
+            total_price=Decimal('100.00'),
+            status='completed'
+        )
+
+    def test_cannot_delete_order_with_payment(self):
+        """Verify an order with an associated payment record cannot be deleted."""
+        from django.db.models import ProtectedError
+        from payments.models import Payment
+
+        Payment.objects.create(
+            order=self.order,
+            amount=Decimal('100.00'),
+            method='card',
+            status='completed'
+        )
+
+        with self.assertRaises(ProtectedError):
+            self.order.delete()
+
+    def test_cannot_delete_customer_or_vendor_with_orders(self):
+        """Verify deleting a customer or vendor with order history raises ProtectedError."""
+        from django.db.models import ProtectedError
+
+        with self.assertRaises(ProtectedError):
+            self.customer.delete()
+
+        with self.assertRaises(ProtectedError):
+            self.vendor.delete()
+
+    def test_deactivating_customer_or_vendor_preserves_orders(self):
+        """Verify soft deactivation of customer or vendor retains historical order data."""
+        self.customer.is_active = False
+        self.customer.save()
+
+        self.vendor.is_active = False
+        self.vendor.save()
+
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.customer, self.customer)
+        self.assertEqual(self.order.vendor, self.vendor)
+        self.assertEqual(Order.objects.filter(pk=self.order.pk).count(), 1)
+
+
+class OrderDeletionPolicyAPITests(APITestCase):
+    """Test API policy preventing hard deletion of completed or paid orders."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email='admin_del@example.com',
+            name='Admin User',
+            password='pass123',
+            role='admin',
+            is_staff=True,
+            is_superuser=True
+        )
+
+        self.customer = User.objects.create_user(
+            email='cust_del@example.com',
+            name='Customer User',
+            password='pass123',
+            role='customer'
+        )
+
+        self.vendor_user = User.objects.create_user(
+            email='vendor_del@example.com',
+            name='Vendor Owner',
+            password='pass123',
+            role='vendor'
+        )
+
+        self.vendor = Vendor.objects.create(
+            owner=self.vendor_user,
+            shop_name='Deletion Test Shop',
+            address='123 Street',
+            city='City'
+        )
+
+        # Token for Admin
+        resp = self.client.post(reverse('token_obtain_pair'), {
+            'email': 'admin_del@example.com',
+            'password': 'pass123'
+        })
+        self.admin_token = resp.data['access']
+
+        # Token for Customer
+        resp = self.client.post(reverse('token_obtain_pair'), {
+            'email': 'cust_del@example.com',
+            'password': 'pass123'
+        })
+        self.customer_token = resp.data['access']
+
+    def test_admin_cannot_delete_completed_order_via_api(self):
+        order = Order.objects.create(
+            customer=self.customer,
+            vendor=self.vendor,
+            delivery_address='Address',
+            status='completed',
+            total_price=Decimal('50.00')
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.admin_token}')
+        response = self.client.delete(reverse('order-detail', kwargs={'pk': order.id}))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(Order.objects.filter(id=order.id).exists())
+
+    def test_admin_cannot_delete_paid_order_via_api(self):
+        order = Order.objects.create(
+            customer=self.customer,
+            vendor=self.vendor,
+            delivery_address='Address',
+            status='pending',
+            payment_status='paid',
+            total_price=Decimal('50.00')
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.admin_token}')
+        response = self.client.delete(reverse('order-detail', kwargs={'pk': order.id}))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(Order.objects.filter(id=order.id).exists())
+
+    def test_customer_forbidden_from_deleting_order(self):
+        order = Order.objects.create(
+            customer=self.customer,
+            vendor=self.vendor,
+            delivery_address='Address',
+            status='pending'
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.customer_token}')
+        response = self.client.delete(reverse('order-detail', kwargs={'pk': order.id}))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_delete_unpaid_pending_order_with_audit_logging(self):
+        order = Order.objects.create(
+            customer=self.customer,
+            vendor=self.vendor,
+            delivery_address='Address',
+            status='pending',
+            payment_status='pending'
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.admin_token}')
+        response = self.client.delete(
+            reverse('order-detail', kwargs={'pk': order.id}),
+            {'reason': 'Test admin cleanup'},
+            format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Order.objects.filter(id=order.id).exists())

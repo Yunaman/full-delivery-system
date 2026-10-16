@@ -39,7 +39,7 @@ class Order(models.Model):
     
     customer = models.ForeignKey(
         'accounts.User',
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name='orders',
         limit_choices_to={'role': 'customer'},
         verbose_name=_('customer')
@@ -47,7 +47,7 @@ class Order(models.Model):
     
     vendor = models.ForeignKey(
         'vendors.Vendor',
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name='orders',
         verbose_name=_('vendor')
     )
@@ -87,7 +87,7 @@ class Order(models.Model):
         _('subtotal'),
         max_digits=10,
         decimal_places=2,
-        default=0.00,
+        default=0,
         validators=[MinValueValidator(0)]
     )
     
@@ -95,7 +95,7 @@ class Order(models.Model):
         _('delivery fee'),
         max_digits=10,
         decimal_places=2,
-        default=0.00,
+        default=0,
         validators=[MinValueValidator(0)]
     )
     
@@ -103,7 +103,7 @@ class Order(models.Model):
         _('tax amount'),
         max_digits=10,
         decimal_places=2,
-        default=0.00,
+        default=0,
         validators=[MinValueValidator(0)]
     )
     
@@ -111,7 +111,7 @@ class Order(models.Model):
         _('discount amount'),
         max_digits=10,
         decimal_places=2,
-        default=0.00,
+        default=0,
         validators=[MinValueValidator(0)]
     )
     
@@ -119,7 +119,7 @@ class Order(models.Model):
         _('total price'),
         max_digits=10,
         decimal_places=2,
-        default=0.00,
+        default=0,
         validators=[MinValueValidator(0)]
     )
     
